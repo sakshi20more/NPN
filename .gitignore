@@ -1,0 +1,61 @@
+# Virtual Environment
+.venv/
+venv/
+env/
+ENV/
+*.egg-info/
+dist/
+build/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+
+# Compiled Python files
+*.pyc
+*.pyo
+*.pyd
+
+# Distribution / packaging
+.eggs/
+*.egg
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# OS
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+
+# Environment variables
+.env
+.env.local
+
+# Data files (optional - uncomment if needed)
+# data/
+# *.npy
+# *.pkl
+# *.h5
+
+# Temporary files
+*.tmp
+*.temp
+*.log
