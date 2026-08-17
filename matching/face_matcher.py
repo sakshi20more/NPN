@@ -2346,34 +2346,47 @@ def verify_customer(
         )
     )
 
-        # ========================================================
-    # LIVENESS CONFIDENCE
+       
+    # ========================================================
+    # REAL LIVENESS SCORE
     # ========================================================
 
     liveness_data = live_result["liveness"]
 
-    blink_score = 1.0 if liveness_data.get(
-        "blink_detected",
-        False
-    ) else 0.0
+    liveness_confidence = float(
+            liveness_data.get(
+                "liveness_score",
+                0.0
+            )
+        )
 
-    head_up_score = 1.0 if liveness_data.get(
-        "head_up_detected",
-        False
-    ) else 0.0
-
-    head_down_score = 1.0 if liveness_data.get(
-        "head_down_detected",
-        False
-    ) else 0.0
+    liveness_confidence = max(
+            0.0,
+            min(
+                1.0,
+                liveness_confidence
+            )
+        )
 
 
-    # Three real liveness checks
-    liveness_confidence = (
-        blink_score
-        + head_up_score
-        + head_down_score
-    ) / 3.0
+    # ========================================================
+    # REAL LIVENESS SCORE FROM 68-POINT LANDMARKS
+    # ========================================================
+
+    liveness_confidence = float(
+        liveness_data.get(
+            "liveness_score",
+            0.0
+        )
+    )
+
+    liveness_confidence = max(
+        0.0,
+        min(
+            1.0,
+            liveness_confidence
+        )
+    )
 
 
     # Liveness must also pass the detector
@@ -2382,10 +2395,7 @@ def verify_customer(
     )
 
 
-    # Remaining missing liveness evidence
-    spoof_probability = (
-        1.0 - liveness_confidence
-    )
+    
 
     # ========================================================
     # PROCESSING TIME
@@ -2416,10 +2426,7 @@ def verify_customer(
             2
         ),
 
-        "spoof_probability": round(
-            spoof_probability,
-            2
-        ),
+        "spoof_probability": None,
 
         "processing_time_ms": processing_time_ms
     }

@@ -790,6 +790,28 @@ import cv2
 import dlib
 import numpy as np
 import face_recognition_models
+import os
+
+# ============================================================
+# 68-POINT FACE LANDMARK MODEL
+# ============================================================
+
+BASE_DIR = os.path.dirname(
+    os.path.dirname(
+        os.path.abspath(__file__)
+    )
+)
+
+LANDMARK_MODEL_PATH = os.path.join(
+    BASE_DIR,
+    "models",
+    "shape_predictor_68_face_landmarks.dat",
+    "shape_predictor_68_face_landmarks.dat"
+)
+
+landmark_predictor = dlib.shape_predictor(
+    LANDMARK_MODEL_PATH
+)
 
 
 # ============================================================
@@ -799,12 +821,10 @@ import face_recognition_models
 EAR_THRESHOLD = 0.21
 BLINK_CONSECUTIVE_FRAMES = 2
 
-# How much the face must move vertically
 HEAD_MOVEMENT_THRESHOLD = 25
+HEAD_MOVEMENT_TARGET = 40.0
 
-# Number of frames required to confirm movement
 MOVEMENT_REQUIRED_FRAMES = 2
-
 
 # ============================================================
 # DLIB SETUP
@@ -910,14 +930,15 @@ class LivenessDetector:
 
         self.blink_frames = 0
         self.blink_detected = False
+        self.max_blink_frames = 0
 
         # ----------------------------------------------------
         # HEAD UP
         # ----------------------------------------------------
-
         self.initial_y = None
         self.up_frames = 0
         self.head_up_detected = False
+        self.max_upward_movement = 0.0
 
         # ----------------------------------------------------
         # HEAD DOWN
@@ -926,6 +947,7 @@ class LivenessDetector:
         self.up_y = None
         self.down_frames = 0
         self.head_down_detected = False
+        self.max_downward_movement = 0.0
 
         # ----------------------------------------------------
         # FINAL STATE
@@ -965,6 +987,11 @@ class LivenessDetector:
         if average_ear < EAR_THRESHOLD:
 
             self.blink_frames += 1
+
+            self.max_blink_frames = max(
+            self.max_blink_frames,
+            self.blink_frames
+    )
 
         else:
 
@@ -1010,6 +1037,10 @@ class LivenessDetector:
 
         upward_movement = (
             self.initial_y - current_y
+        )
+        self.max_upward_movement = max(
+        self.max_upward_movement,
+        upward_movement
         )
 
         if (
@@ -1058,6 +1089,10 @@ class LivenessDetector:
 
         downward_movement = (
             current_y - self.up_y
+        )
+        self.max_downward_movement = max(
+        self.max_downward_movement,
+        downward_movement
         )
 
         if (
@@ -1241,23 +1276,53 @@ class LivenessDetector:
             )
 
         return {
-        "live": self.live,
-        "stage": self.stage,
-        "reason": self.reason,
-        "face_count": 1,
+    "live": self.live,
+    "stage": self.stage,
+    "reason": self.reason,
+    "face_count": 1,
 
-        "blink_detected": bool(
-            self.blink_detected
-        ),
+    "blink_detected": bool(
+        self.blink_detected
+    ),
 
-        "head_up_detected": bool(
-            self.head_up_detected
-        ),
+    "head_up_detected": bool(
+        self.head_up_detected
+    ),
 
-        "head_down_detected": bool(
-            self.head_down_detected
-        )
-    }
+    "head_down_detected": bool(
+        self.head_down_detected
+    ),
+
+    "blink_frames": int(
+    self.max_blink_frames
+),
+
+"head_up_movement": float(
+    self.max_upward_movement
+),
+
+"head_down_movement": float(
+    self.max_downward_movement
+),
+
+"liveness_score": float(
+    0.30 * min(
+        1.0,
+        self.max_blink_frames / 3.0
+    )
+    + 0.35 * min(
+        1.0,
+        self.max_upward_movement
+        / HEAD_MOVEMENT_TARGET
+    )
+    + 0.35 * min(
+        1.0,
+        self.max_downward_movement
+        / HEAD_MOVEMENT_TARGET
+    )
+)
+
+}
 
 
 # ============================================================
@@ -1473,6 +1538,96 @@ def test_liveness():
                 print(
                     "✅ Head DOWN detected"
                 )
+                print()
+                print("===== LIVENESS MEASUREMENTS =====")
+
+                print(
+                    f"Blink frames       : "
+                    f"{result.get('blink_frames', 0)}"
+                )
+
+                print(
+                    f"Head up movement   : "
+                    f"{result.get('head_up_movement', 0.0):.2f}"
+                )
+
+                print(
+                    f"Head down movement : "
+                    f"{result.get('head_down_movement', 0.0):.2f}"
+                )
+
+                print("=================================")
+
+               
+
+                # ========================================================
+                # LIVENESS COMPONENT SCORES
+                # ========================================================
+
+                blink_frames = result.get(
+                    "blink_frames",
+                    0
+                )
+
+                head_up_movement = result.get(
+                    "head_up_movement",
+                    0.0
+                )
+
+                head_down_movement = result.get(
+                    "head_down_movement",
+                    0.0
+                )
+
+                # Blink score
+                blink_score = min(
+                    1.0,
+                    blink_frames / 3.0
+                )
+
+                # Head movement scores
+                head_up_score = min(
+                    1.0,
+                    head_up_movement
+                    / HEAD_MOVEMENT_TARGET
+                )
+
+                head_down_score = min(
+                    1.0,
+                    head_down_movement
+                    / HEAD_MOVEMENT_TARGET
+                )
+                # Combined liveness score
+                liveness_score = (
+                    0.30 * blink_score
+                    + 0.35 * head_up_score
+                    + 0.35 * head_down_score
+                )
+                
+
+                print()
+                print("===== COMPONENT SCORES =====")
+
+                print(
+                    f"Blink score       : "
+                    f"{blink_score:.3f}"
+                )
+
+                print(
+                    f"Head UP score     : "
+                    f"{head_up_score:.3f}"
+                )
+
+                print(
+                    f"Head DOWN score   : "
+                    f"{head_down_score:.3f}"
+                )
+                print(
+                    f"Liveness score    : "
+                    f"{liveness_score:.3f}"
+)
+
+                print("============================")
 
                 break
 

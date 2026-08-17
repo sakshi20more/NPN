@@ -159,6 +159,7 @@ import os
 import cv2
 import numpy as np
 
+
 from detection.face_detector import (
     detect_faces,
     draw_face_boxes
