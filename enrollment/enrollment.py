@@ -224,7 +224,7 @@ def enroll_customer(customer_id):
             break
 
         # Detect faces
-        face_locations, _ = detect_faces(
+        face_locations, _, yolo_confidences = detect_faces(
             frame
         )
 

@@ -1,173 +1,130 @@
-# import cv2
-# import face_recognition
-
-
-# def detect_faces(frame):
-#     """
-#     Detect faces in an OpenCV frame.
-
-#     Args:
-#         frame: OpenCV BGR image.
-
-#     Returns:
-#         face_locations: List of detected face locations.
-#         rgb_frame: RGB version of the frame.
-#     """
-
-#     # Convert OpenCV's BGR format to RGB
-#     rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-
-#     # Detect faces
-#     face_locations = face_recognition.face_locations(rgb_frame)
-
-#     return face_locations, rgb_frame
-
-
-# def get_face_encoding(frame):
-#     """
-#     Detect a single face and generate its 128-dimensional encoding.
-
-#     Args:
-#         frame: OpenCV BGR image.
-
-#     Returns:
-#         encoding: 128-dimensional face encoding.
-#         None: If zero or multiple faces are detected.
-#     """
-
-#     face_locations, rgb_frame = detect_faces(frame)
-
-#     # Enrollment requires exactly one face
-#     if len(face_locations) != 1:
-#         return None
-
-#     encodings = face_recognition.face_encodings(
-#         rgb_frame,
-#         face_locations
-#     )
-
-#     if len(encodings) == 0:
-#         return None
-
-#     return encodings[0]
-
-
-# def draw_face_boxes(frame, face_locations):
-#     """
-#     Draw rectangles around detected faces.
-
-#     Args:
-#         frame: OpenCV BGR image.
-#         face_locations: Face locations returned by face_recognition.
-
-#     Returns:
-#         frame with face rectangles.
-#     """
-
-#     for top, right, bottom, left in face_locations:
-
-#         cv2.rectangle(
-#             frame,
-#             (left, top),
-#             (right, bottom),
-#             (0, 255, 0),
-#             2
-#         )
-
-#     return frame
-
-
-# def start_camera_test():
-#     """
-#     Test webcam and face detection.
-#     """
-
-#     cap = cv2.VideoCapture(0)
-
-#     if not cap.isOpened():
-#         print("❌ Camera could not be opened")
-#         return
-
-#     print("✅ Camera started")
-#     print("Press Q to quit")
-
-#     while True:
-
-#         ret, frame = cap.read()
-
-#         if not ret:
-#             print("❌ Failed to read frame")
-#             break
-
-#         # Detect faces
-#         face_locations, _ = detect_faces(frame)
-
-#         # Draw face boxes
-#         frame = draw_face_boxes(
-#             frame,
-#             face_locations
-#         )
-
-#         # Display number of faces
-#         cv2.putText(
-#             frame,
-#             f"Faces detected: {len(face_locations)}",
-#             (20, 40),
-#             cv2.FONT_HERSHEY_SIMPLEX,
-#             1,
-#             (0, 255, 0),
-#             2
-#         )
-
-#         cv2.imshow(
-#             "Face Detection",
-#             frame
-#         )
-
-#         if cv2.waitKey(1) & 0xFF == ord("q"):
-#             break
-
-#     cap.release()
-#     cv2.destroyAllWindows()
-
-
-# if __name__ == "__main__":
-#     start_camera_test()
-
+import os
 import cv2
-import face_recognition
+from ultralytics import YOLO
 
 
-def detect_faces(frame):
+# ============================================================
+# YOLO FACE MODEL
+# ============================================================
+
+MODEL_PATH = os.path.join(
+    "models",
+    "yolov9t-face-lindevs.pt"
+)
+
+face_model = YOLO(MODEL_PATH)
+
+
+# ============================================================
+# DETECT FACES
+# ============================================================
+
+def detect_faces(frame, confidence=0.3):
     """
-    Detect faces in an OpenCV BGR frame.
+    Detect faces using YOLOv9t-Face.
+
+    Args:
+        frame:
+            OpenCV BGR image.
+
+        confidence:
+            Minimum YOLO confidence.
 
     Returns:
-        face_locations: List of detected face locations
-        rgb_frame: RGB version of the frame
+        face_locations:
+            Face locations in the format expected by
+            face_recognition:
+
+            (top, right, bottom, left)
+
+        rgb_frame:
+            RGB version of the frame.
+
+        yolo_confidences:
+            Confidence score for each detected face.
     """
 
-    # OpenCV captures images in BGR.
-    # face_recognition expects RGB.
+    # Convert BGR → RGB
     rgb_frame = cv2.cvtColor(
         frame,
         cv2.COLOR_BGR2RGB
     )
 
-    face_locations = face_recognition.face_locations(
-        rgb_frame
+    # Run YOLO
+    results = face_model(
+        frame,
+        conf=confidence,
+        verbose=False
     )
 
-    return face_locations, rgb_frame
+    face_locations = []
+    yolo_confidences = []
+
+    # Process detections
+    for result in results:
+
+        for box in result.boxes:
+
+            x1, y1, x2, y2 = map(
+                int,
+                box.xyxy[0]
+            )
+
+            confidence_score = float(
+                box.conf[0]
+            )
+
+            # face_recognition format:
+            # (top, right, bottom, left)
+
+            face_locations.append(
+                (
+                    y1,
+                    x2,
+                    y2,
+                    x1
+                )
+            )
+
+            yolo_confidences.append(
+                confidence_score
+            )
+
+    return (
+        face_locations,
+        rgb_frame,
+        yolo_confidences
+    )
 
 
-def draw_face_boxes(frame, face_locations):
+# ============================================================
+# DRAW FACE BOXES
+# ============================================================
+
+def draw_face_boxes(
+    frame,
+    face_locations,
+    yolo_confidences=None
+):
     """
-    Draw rectangles around detected faces.
+    Draw YOLO face boxes and confidence values.
     """
 
-    for top, right, bottom, left in face_locations:
+    if yolo_confidences is None:
+        yolo_confidences = [
+            None
+        ] * len(face_locations)
 
+    for face_location, confidence in zip(
+        face_locations,
+        yolo_confidences
+    ):
+
+        top, right, bottom, left = (
+            face_location
+        )
+
+        # Draw rectangle
         cv2.rectangle(
             frame,
             (left, top),
@@ -176,59 +133,106 @@ def draw_face_boxes(frame, face_locations):
             2
         )
 
+        # Display confidence
+        if confidence is not None:
+
+            label = (
+                f"Face: {confidence:.2f}"
+            )
+
+            cv2.putText(
+                frame,
+                label,
+                (left, max(top - 10, 20)),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.6,
+                (0, 255, 0),
+                2
+            )
+
     return frame
 
 
+# ============================================================
+# SIMPLE CAMERA TEST
+# ============================================================
+
 def start_camera_test():
-    """
-    Simple standalone camera test for face detection.
-    """
 
     cap = cv2.VideoCapture(0)
 
     if not cap.isOpened():
-        print("❌ Camera could not be opened")
+
+        print(
+            "Could not open camera."
+        )
+
         return
 
-    print("✅ Camera started")
-    print("Press Q to quit")
+    print(
+        "YOLO face detection started."
+    )
+
+    print(
+        "Press Q to quit."
+    )
 
     while True:
 
         ret, frame = cap.read()
 
         if not ret:
-            print("❌ Could not read camera frame")
+
+            print(
+                "Could not read camera frame."
+            )
+
             break
 
-        face_locations, _ = detect_faces(frame)
+        (
+            face_locations,
+            rgb_frame,
+            yolo_confidences
+        ) = detect_faces(frame)
 
-        draw_face_boxes(
+        frame = draw_face_boxes(
             frame,
-            face_locations
+            face_locations,
+            yolo_confidences
         )
 
+        # Display number of faces
         cv2.putText(
             frame,
-            f"Faces detected: {len(face_locations)}",
+            f"Faces: {len(face_locations)}",
             (20, 40),
             cv2.FONT_HERSHEY_SIMPLEX,
-            1,
+            0.8,
             (0, 255, 0),
             2
         )
 
         cv2.imshow(
-            "Face Detection",
+            "YOLO Face Detection",
             frame
         )
 
-        if cv2.waitKey(1) & 0xFF == ord("q"):
+        if (
+            cv2.waitKey(1)
+            & 0xFF
+            == ord("q")
+        ):
             break
 
     cap.release()
+
     cv2.destroyAllWindows()
 
 
+# ============================================================
+# RUN DIRECTLY
+# ============================================================
+
 if __name__ == "__main__":
+
     start_camera_test()

@@ -1682,6 +1682,11 @@
 import cv2
 import numpy as np
 import face_recognition
+from risk.risk_predictor import calculate_risk 
+from detection.face_detector import detect_faces
+import time
+import json
+
 
 from liveness.liveness_detector import (
     LivenessDetector,
@@ -1727,48 +1732,81 @@ def load_embedding(path):
 # GENERATE EMBEDDING FROM FRAME
 # ============================================================
 
-def generate_embedding_from_frame(frame):
+def generate_embedding_from_frame(
+    frame,
+    face_locations=None
+):
     """
     Generate a 128-dimensional face embedding
     from a camera frame.
 
+    Args:
+        frame:
+            OpenCV BGR camera frame.
+
+        face_locations:
+            Face locations detected by YOLO.
+            If None, face_recognition will detect
+            the face as a fallback.
+
     Returns:
-        embedding
-        OR
-        None
+        embedding, reason
     """
 
+    # Convert BGR to RGB
     rgb_frame = cv2.cvtColor(
         frame,
         cv2.COLOR_BGR2RGB
     )
 
-    face_locations = (
-        face_recognition.face_locations(
-            rgb_frame
-        )
-    )
+    # --------------------------------------------------------
+    # FACE DETECTION
+    # --------------------------------------------------------
 
-    # No face
+    # Use YOLO locations when provided.
+    # Otherwise use face_recognition as fallback.
+    if face_locations is None:
+
+        face_locations = (
+            face_recognition.face_locations(
+                rgb_frame
+            )
+        )
+
+    # --------------------------------------------------------
+    # NO FACE
+    # --------------------------------------------------------
+
     if len(face_locations) == 0:
 
         return None, (
             "No face detected."
         )
 
-    # Multiple faces
+    # --------------------------------------------------------
+    # MULTIPLE FACES
+    # --------------------------------------------------------
+
     if len(face_locations) > 1:
 
         return None, (
             "Multiple faces detected."
         )
 
+    # --------------------------------------------------------
+    # GENERATE EMBEDDING
+    # --------------------------------------------------------
+
     encodings = (
         face_recognition.face_encodings(
             rgb_frame,
-            face_locations
+            known_face_locations=face_locations
         )
     )
+
+    # --------------------------------------------------------
+    # ENCODING FAILED
+    # --------------------------------------------------------
 
     if len(encodings) == 0:
 
@@ -1776,11 +1814,13 @@ def generate_embedding_from_frame(frame):
             "Could not generate face embedding."
         )
 
+    # --------------------------------------------------------
+    # SUCCESS
+    # --------------------------------------------------------
+
     return encodings[0], (
         "Face embedding generated."
     )
-
-
 # ============================================================
 # CAPTURE LIVE FACE + LIVENESS
 # ============================================================
@@ -2035,15 +2075,96 @@ def capture_live_embedding(
             "Generating live face embedding..."
         )
 
+       # ========================================================
+# YOLO FACE DETECTION
+# ========================================================
+
+        print()
+        print("Detecting face with YOLO...")
+
+        (
+            face_locations,
+            _,
+            yolo_confidences
+        ) = detect_faces(
+            last_valid_frame
+        )
+
+        face_count = len(face_locations)
+
+        print(
+            f"Faces detected by YOLO: {face_count}"
+        )
+
+        # --------------------------------------------------------
+        # No face
+        # --------------------------------------------------------
+
+        if face_count == 0:
+
+            return {
+                "success": False,
+                "liveness": final_liveness_result,
+                "embedding": None,
+                "yolo_confidence": 0.0,
+                "face_count": 0,
+                "reason": "No face detected by YOLO."
+            }
+
+        # --------------------------------------------------------
+        # Multiple faces
+        # --------------------------------------------------------
+
+        if face_count > 1:
+
+            return {
+                "success": False,
+                "liveness": final_liveness_result,
+                "embedding": None,
+                "yolo_confidence": max(
+                    yolo_confidences
+                ),
+                "face_count": face_count,
+                "reason": "Multiple faces detected."
+            }
+
+    # --------------------------------------------------------
+    # One face
+    # --------------------------------------------------------
+
+        yolo_confidence = float(
+            yolo_confidences[0]
+        )
+
+        print(
+            f"YOLO confidence: {yolo_confidence:.2f}"
+        )
+
+    # ========================================================
+    # GENERATE EMBEDDING
+    # ========================================================
+
+      # ========================================================
+# GENERATE EMBEDDING
+# ========================================================
+
+        print()
+        print(
+            "Generating live face embedding..."
+        )
+
+        face_count = len(face_locations)
+
         live_embedding, embedding_reason = (
             generate_embedding_from_frame(
-                last_valid_frame
+                last_valid_frame,
+                face_locations=face_locations
             )
         )
 
-        # ----------------------------------------------------
+        # --------------------------------------------------------
         # Embedding failed
-        # ----------------------------------------------------
+        # --------------------------------------------------------
 
         if live_embedding is None:
 
@@ -2051,6 +2172,8 @@ def capture_live_embedding(
                 "success": False,
                 "liveness": final_liveness_result,
                 "embedding": None,
+                "face_count": face_count,
+                "yolo_confidence": yolo_confidence,
                 "reason": embedding_reason
             }
 
@@ -2062,6 +2185,8 @@ def capture_live_embedding(
             "success": True,
             "liveness": final_liveness_result,
             "embedding": live_embedding,
+            "face_count": face_count,
+            "yolo_confidence": yolo_confidence,
             "reason": (
                 "Live face embedding generated."
             )
@@ -2134,7 +2259,6 @@ def compare_embeddings(
 # ============================================================
 # COMPLETE VERIFICATION
 # ============================================================
-
 def verify_customer(
     customer_id,
     stored_embedding,
@@ -2143,25 +2267,22 @@ def verify_customer(
     show_window=True
 ):
     """
-    Backend-friendly verification function.
+    Complete face verification.
 
-    Parameters
-    ----------
-    customer_id:
-        Customer being verified.
-
-    stored_embedding:
-        Registered embedding belonging to
-        that customer.
-
-    threshold:
-        Face matching threshold.
-
-    Returns
-    -------
-    dict
-        JSON-friendly verification result.
+    Final result contains only:
+        face_match
+        face_confidence
+        liveness_passed
+        liveness_confidence
+        spoof_probability
+        processing_time_ms
     """
+
+    # ========================================================
+    # START TIMER
+    # ========================================================
+
+    start_time = time.perf_counter()
 
     # ========================================================
     # STEP 1
@@ -2179,17 +2300,17 @@ def verify_customer(
 
     if not live_result["success"]:
 
+        processing_time_ms = int(
+            (time.perf_counter() - start_time) * 1000
+        )
+
         return {
-            "customer_id": customer_id,
-            "verified": False,
-            "liveness": (
-                live_result["liveness"]
-            ),
-            "distance": None,
-            "threshold": float(threshold),
-            "reason": (
-                live_result["reason"]
-            )
+            "face_match": False,
+            "face_confidence": 0.0,
+            "liveness_passed": False,
+            "liveness_confidence": 0.0,
+            "spoof_probability": 1.0,
+            "processing_time_ms": processing_time_ms
         }
 
     # ========================================================
@@ -2207,38 +2328,101 @@ def verify_customer(
         threshold
     )
 
+        # ========================================================
+    # FACE MATCH SCORE
+    # ========================================================
+
+    distance = float(
+        match_result["distance"]
+    )
+
+    # Convert the actual face distance into a
+    # normalized similarity score.
+    face_confidence = max(
+        0.0,
+        min(
+            1.0,
+            1.0 - distance
+        )
+    )
+
+        # ========================================================
+    # LIVENESS CONFIDENCE
+    # ========================================================
+
+    liveness_data = live_result["liveness"]
+
+    blink_score = 1.0 if liveness_data.get(
+        "blink_detected",
+        False
+    ) else 0.0
+
+    head_up_score = 1.0 if liveness_data.get(
+        "head_up_detected",
+        False
+    ) else 0.0
+
+    head_down_score = 1.0 if liveness_data.get(
+        "head_down_detected",
+        False
+    ) else 0.0
+
+
+    # Three real liveness checks
+    liveness_confidence = (
+        blink_score
+        + head_up_score
+        + head_down_score
+    ) / 3.0
+
+
+    # Liveness must also pass the detector
+    liveness_passed = bool(
+        liveness_data.get("live", False)
+    )
+
+
+    # Remaining missing liveness evidence
+    spoof_probability = (
+        1.0 - liveness_confidence
+    )
+
+    # ========================================================
+    # PROCESSING TIME
+    # ========================================================
+
+    processing_time_ms = int(
+        (time.perf_counter() - start_time) * 1000
+    )
+
     # ========================================================
     # FINAL RESULT
     # ========================================================
 
-    if match_result["verified"]:
-
-        reason = "Face verified."
-
-    else:
-
-        reason = (
-            "Face does not match."
-        )
-
     return {
-        "customer_id": customer_id,
-        "verified": (
+        "face_match": bool(
             match_result["verified"]
         ),
-        "liveness": (
-            live_result["liveness"]
+
+        "face_confidence": round(
+            face_confidence,
+            2
         ),
-        "distance": (
-            match_result["distance"]
+
+        "liveness_passed": liveness_passed,
+
+        "liveness_confidence": round(
+            liveness_confidence,
+            2
         ),
-        "threshold": (
-            match_result["threshold"]
+
+        "spoof_probability": round(
+            spoof_probability,
+            2
         ),
-        "reason": reason
+
+        "processing_time_ms": processing_time_ms
     }
-
-
 # ============================================================
 # DEVELOPMENT TEST
 # ============================================================
@@ -2364,44 +2548,11 @@ if __name__ == "__main__":
         camera_index=CAMERA_INDEX,
         show_window=True
     )
-
     # ========================================================
-    # RESULT
+    # FINAL JSON RESULT
     # ========================================================
 
-    print()
-    print("===================================")
-    print("       VERIFICATION RESULT")
-    print("===================================")
-
-    print(
-        f"Customer ID : "
-        f"{result['customer_id']}"
-    )
-
-    print(
-        f"Liveness    : "
-        f"{result['liveness']}"
-    )
-
-    print(
-        f"Distance    : "
-        f"{result['distance']}"
-    )
-
-    print(
-        f"Threshold   : "
-        f"{result['threshold']}"
-    )
-
-    print(
-        f"Verified    : "
-        f"{result['verified']}"
-    )
-
-    print(
-        f"Reason      : "
-        f"{result['reason']}"
-    )
-
-    print("===================================")
+    print(json.dumps(
+        result,
+        indent=2
+    ))

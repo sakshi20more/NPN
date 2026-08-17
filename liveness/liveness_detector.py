@@ -1241,11 +1241,23 @@ class LivenessDetector:
             )
 
         return {
-            "live": self.live,
-            "stage": self.stage,
-            "reason": self.reason,
-            "face_count": 1
-        }
+        "live": self.live,
+        "stage": self.stage,
+        "reason": self.reason,
+        "face_count": 1,
+
+        "blink_detected": bool(
+            self.blink_detected
+        ),
+
+        "head_up_detected": bool(
+            self.head_up_detected
+        ),
+
+        "head_down_detected": bool(
+            self.head_down_detected
+        )
+    }
 
 
 # ============================================================
