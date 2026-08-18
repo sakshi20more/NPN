@@ -1686,6 +1686,30 @@ from risk.risk_predictor import calculate_risk
 from detection.face_detector import detect_faces
 import time
 import json
+def calculate_spoof_probability(
+    liveness_confidence,
+    face_distance,
+    face_threshold
+):
+    liveness_risk = 1.0 - liveness_confidence
+
+    face_risk = min(
+        1.0,
+        face_distance / face_threshold
+    )
+
+    spoof_probability = (
+        0.70 * liveness_risk
+        + 0.30 * face_risk
+    )
+
+    return max(
+        0.0,
+        min(
+            1.0,
+            spoof_probability
+        )
+    )
 
 
 from liveness.liveness_detector import (
@@ -2393,6 +2417,49 @@ def verify_customer(
     liveness_passed = bool(
         liveness_data.get("live", False)
     )
+    # ========================================================
+    # SPOOF PROBABILITY
+    # ========================================================
+# ========================================================
+# COMBINED SPOOF RISK
+# ========================================================
+
+    face_risk = max(
+            0.0,
+            min(
+                1.0,
+                1.0 - face_confidence
+            )
+        )
+
+    liveness_risk = max(
+            0.0,
+            min(
+                1.0,
+                1.0 - liveness_confidence
+            )
+        )
+
+    spoof_probability = (
+            0.50 * face_risk
+            + 0.50 * liveness_risk
+        )
+
+    spoof_probability = max(
+            0.0,
+            min(
+                1.0,
+                spoof_probability
+            )
+        )
+
+    spoof_probability = max(
+        0.0,
+        min(
+            1.0,
+            spoof_probability
+        )
+    )
 
 
     
@@ -2426,7 +2493,10 @@ def verify_customer(
             2
         ),
 
-        "spoof_probability": None,
+        "spoof_probability": round(
+        spoof_probability,
+        2
+    ),
 
         "processing_time_ms": processing_time_ms
     }
